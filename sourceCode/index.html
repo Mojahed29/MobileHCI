@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Menu Navigation </title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@latest"></script>
+</head>
+<body>
+<div id="menu-container">
+    <div class="row">
+        <div    class="menu-item selected"
+                data-url="https://www.google.com" 
+                data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/wp2860498.webp?v=1709045424351">
+      </div>
+        <div class="menu-item"
+             data-url="https://www.youtube.com" 
+             data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/youtube-logo-on-black-background-free-vector.jpg?v=1709045146566">
+      </div>
+        <div class="menu-item"
+             data-url="https://www.bbc.com"
+             data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/bbc-news-black-background-0g00pdl1ie18tj40.jpg?v=1709045132902">
+      </div>
+    </div>
+      <div class="row">
+          <div class="menu-item"
+             data-url="https://outlook.live.com" 
+             data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/microsoft-outlook-logo-dark-background.avif?v=1709045115669">
+      </div>
+        <div class="menu-item"
+             data-url="https://mail.google.com" 
+             data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/download.jpeg?v=1709045122432">
+      </div>
+        <div class="menu-item"
+             data-url="https://www.amazon.com" 
+             data-background="https://cdn.glitch.global/83eeb9ee-d6c0-4d31-9cd2-56b58c46d173/amazon-dark-logo-png-transparent.png?v=1709045067927">
+      </div>
+    </div>
+</div>
+  
+<button id="start">Start Camera</button>
+<video id="camera" autoplay playsinline width="640" height="480"></video>
+
+<script >
+let model;
+const menuItems = document.querySelectorAll('.menu-item');
+let currentIndex = 0;
+let lastMoveTime = 0;
+let debounceTimer;
+let lastOrientationUpdate = Date.now();
+const orientationCooldown = 500; 
+
+
+document.querySelectorAll('.menu-item').forEach(item => {
+    const backgroundImageUrl = item.getAttribute('data-background');
+    if (backgroundImageUrl) {
+        item.style.backgroundImage = `url('${backgroundImageUrl}')`;
+        item.style.backgroundSize = 'cover';
+        item.style.backgroundPosition = 'center';
+    }
+});
+
+async function loadModel() {
+    model = await handpose.load();
+    console.log('Handpose model loaded.');
+}
+
+async function startCamera() {
+    try {
+        const video = document.getElementById('camera');
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        document.getElementById('start').style.display = 'none'; // Hide the start button
+        await loadModel();
+        detectGestures(video);
+    } catch (error) {
+        console.error('Error starting the camera:', error);
+    }
+}
+
+function navigateToSelectedItem() {
+    const selectedItem = menuItems[currentIndex];
+    const url = selectedItem.getAttribute('data-url');
+    if (url) window.location.href = url;
+}
+
+async function detectGestures(video) {
+    const predictions = await model.estimateHands(video);
+    if (predictions.length > 0) {
+        const gesture = isThumbsUpGesture(predictions[0]);
+        if (gesture) {
+            console.log('Thumbs up detected!');
+            navigateToSelectedItem();
+        }
+    }
+    requestAnimationFrame(() => detectGestures(video));
+}
+
+function isThumbsUpGesture(predictions) {
+    const landmarks = predictions.landmarks;
+    const thumbTip = landmarks[4];
+    const indexTip = landmarks[8];
+    if (thumbTip[1] < indexTip[1]) { 
+        return true;
+    }
+    return false;
+}
+
+function debounceOrientationChange(func, delay) {
+    return function() {
+        const context = this;
+        const args = arguments;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => func.apply(context, args), delay);
+    };
+}
+function updateIndexFromOrientation(beta, gamma) {
+    const now = Date.now();
+    if (now - lastMoveTime < 500) return;
+    lastMoveTime = now;
+    let row = Math.floor(currentIndex / 3);
+    let col = currentIndex % 3;
+
+    if (Math.abs(gamma) > 15) { 
+        col += gamma > 15 ? 1 : -1;
+    }
+    if (Math.abs(beta) > 15) { 
+        row += beta > 15 ? 1 : -1;
+    }
+    
+    row = Math.max(0, Math.min(row, 1));
+    col = Math.max(0, Math.min(col, 2));
+    
+    const newIndex = row * 3 + col;
+    if (newIndex !== currentIndex && newIndex >= 0 && newIndex < menuItems.length)
+    {
+        currentIndex = newIndex;
+        highlightMenuItem();
+    }
+}
+
+function highlightMenuItem() {
+    menuItems.forEach(item => item.classList.remove('selected'));
+    menuItems[currentIndex].classList.add('selected');
+}
+
+function handleOrientation(event) {
+    const now = Date.now();
+    if (now - lastOrientationUpdate < orientationCooldown) return;
+    lastOrientationUpdate = now;
+
+    const beta = event.beta; 
+    const gamma = event.gamma; 
+    let newCol = currentIndex % 3;
+    let newRow = Math.floor(currentIndex / 3);
+
+    if (Math.abs(gamma) > 15) {
+        newCol += gamma < -15 ? -1 : 1;
+    }
+    if (Math.abs(beta) > 15) {
+        newRow += beta > 15 ? 1 : -1;
+    }
+
+    newCol = Math.max(0, Math.min(newCol, 2));
+    newRow = Math.max(0, Math.min(newRow, 1));
+    let newIndex = newRow * 3 + newCol;
+
+    if (newIndex !== currentIndex) {
+        currentIndex = newIndex;
+        highlightMenuItem();
+    }
+}
+
+
+function debounceOrientationChange(func, delay) {
+    return function(...args) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => func.apply(this, args), delay);
+    };
+}
+  window.addEventListener('deviceorientation', debounceOrientationChange(handleOrientation, 100));
+
+
+function highlightMenuItem() {
+    menuItems.forEach((item, index) => {
+        item.classList.toggle('selected', index === currentIndex);
+    });
+}
+
+window.addEventListener('deviceorientation', debounceOrientationChange(handleOrientation, 100), false);
+document.getElementById('menu-container').addEventListener('click', navigateToSelectedItem);
+
+  
+document.getElementById('start').addEventListener('click', async () => {
+    await requestPermissions();
+    startCamera();
+});
+
+function requestPermissions() {
+    return new Promise(async (resolve) => {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            const permissionState = await DeviceOrientationEvent.requestPermission();
+            if (permissionState === 'granted') {
+                window.addEventListener('deviceorientation', handleOrientation);
+                console.log('Device orientation permission granted.');
+            } else {
+                console.error('Device orientation permission not granted.');
+            }
+        }
+        resolve();
+    });
+}
+highlightMenuItem(); 
+</script></body>
+</html>
